@@ -1,6 +1,6 @@
 defmodule BeamDeploy do
   @moduledoc """
-  Blue-green release swaps for a single Elixir node.
+  Blue-green release swaps and in-process hot upgrades for a single Elixir node.
 
   `BeamDeploy` keeps a long-lived parent node running locally and serves traffic
   from a child peer node started with OTP's `:peer` module. When you hand the
@@ -12,9 +12,12 @@ defmodule BeamDeploy do
 
   - no storage, polling, or orchestration layer
   - no Docker or platform coupling
-  - no hot-code patching in place
+  - local tarball input only
 
-  You copy a release tarball onto the host and call `BeamDeploy.upgrade/1`.
+  You copy a release tarball onto the host and call either:
+
+  - `BeamDeploy.upgrade/1` for a blue-green peer swap
+  - `BeamDeploy.hot_upgrade/2` for an in-process hot code reload
 
   ## Integration
 
@@ -51,8 +54,15 @@ defmodule BeamDeploy do
       BeamDeploy.upgrade("/tmp/my_app-0.2.0.tar.gz")
       # => :ok
 
+      BeamDeploy.hot_upgrade("/tmp/my_app-0.2.0.tar.gz", otp_app: :my_app)
+      # => :ok
+
   The tarball must be a standard `mix release` archive built with the same OTP
   version as the running node.
+
+  Hot upgrades are only safe for compatible code changes. Use a cold deploy or
+  the blue-green path instead when changing supervision tree shape, upgrading
+  Erlang/OTP, changing major runtime topology, or touching NIFs.
   """
 
   require Logger
@@ -92,6 +102,26 @@ defmodule BeamDeploy do
   @spec upgrade(Path.t()) :: :ok | {:error, term()}
   def upgrade(tarball_path) when is_binary(tarball_path) do
     call_peer_manager(:upgrade, [tarball_path], {:error, :not_running})
+  end
+
+  @doc """
+  Performs an in-process hot upgrade from a local release tarball path.
+
+  This path does not depend on the parent/peer runtime. It reloads code inside
+  the current node, suspends affected processes, runs `code_change/3`, and
+  resumes them.
+
+  Supported changes are limited to compatible hot-code updates built with the
+  same Erlang/OTP version. NIF upgrades are skipped.
+  """
+  @spec hot_upgrade(Path.t(), keyword()) :: :ok | {:error, term()}
+  def hot_upgrade(tarball_path, opts) when is_binary(tarball_path) and is_list(opts) do
+    otp_app = Keyword.fetch!(opts, :otp_app)
+
+    case BeamDeploy.HotUpgrader.hot_upgrade(tarball_path, otp_app, opts) do
+      {:ok, _stats} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

@@ -1,7 +1,7 @@
 defmodule BeamDeploy.Test.ReleaseRunner do
   @moduledoc false
 
-  defstruct [:http_port, :node_name, :cookie, :release_root, :env]
+  defstruct [:env, :http_port, :node_name, :cookie, :release_name, :release_root]
 
   @doc """
   Starts a built release as a daemon.
@@ -9,22 +9,34 @@ defmodule BeamDeploy.Test.ReleaseRunner do
   Options:
     - `:port` — HTTP port (required)
     - `:id` — unique suffix for node name (default: random)
+    - `:release_name` — release script name, defaults to the release root basename
+    - `:beam_deploy` — set BeamDeploy env wiring, defaults to `true`
+    - `:env` — extra environment variables
   """
   def start(release_root, opts) do
     http_port = Keyword.fetch!(opts, :port)
     id = Keyword.get(opts, :id, System.unique_integer([:positive]))
+    release_name = Keyword.get(opts, :release_name, Path.basename(release_root))
     cookie = "beam_deploy_test_#{id}"
-    node_name = "release_app_#{id}@127.0.0.1"
-    bin = Path.join(release_root, "bin/release_app")
+    node_name = "#{release_name}_#{id}@127.0.0.1"
+    bin = Path.join(release_root, "bin/#{release_name}")
+    beam_deploy? = Keyword.get(opts, :beam_deploy, true)
 
-    env = [
-      {"PORT", "#{http_port}"},
-      {"RELEASE_NODE", node_name},
-      {"RELEASE_COOKIE", cookie},
-      {"RELEASE_DISTRIBUTION", "name"},
-      {"BEAM_DEPLOY", "true"},
-      {"BEAM_DEPLOY_PEER_HOST", "127.0.0.1"}
-    ]
+    env =
+      [
+        {"PORT", "#{http_port}"},
+        {"RELEASE_NODE", node_name},
+        {"RELEASE_COOKIE", cookie},
+        {"RELEASE_DISTRIBUTION", "name"}
+      ] ++
+        if beam_deploy? do
+          [
+            {"BEAM_DEPLOY", "true"},
+            {"BEAM_DEPLOY_PEER_HOST", "127.0.0.1"}
+          ]
+        else
+          []
+        end ++ Keyword.get(opts, :env, [])
 
     # Use Port.open instead of System.cmd because daemon inherits stdout fd
     # and System.cmd blocks waiting for it to close
@@ -51,6 +63,7 @@ defmodule BeamDeploy.Test.ReleaseRunner do
       http_port: http_port,
       node_name: node_name,
       cookie: cookie,
+      release_name: release_name,
       release_root: release_root,
       env: env
     }
@@ -84,7 +97,7 @@ defmodule BeamDeploy.Test.ReleaseRunner do
   Wraps the expression in IO.inspect so stdout captures the result.
   """
   def rpc(runner, expression) do
-    bin = Path.join(runner.release_root, "bin/release_app")
+    bin = Path.join(runner.release_root, "bin/#{runner.release_name}")
 
     case System.cmd(bin, ["rpc", "IO.inspect(#{expression})"],
            env: runner.env,
@@ -99,7 +112,7 @@ defmodule BeamDeploy.Test.ReleaseRunner do
   Stops the running release.
   """
   def stop(runner) do
-    bin = Path.join(runner.release_root, "bin/release_app")
+    bin = Path.join(runner.release_root, "bin/#{runner.release_name}")
     System.cmd(bin, ["stop"], env: runner.env, stderr_to_stdout: true)
 
     # Wait for the node to actually go down
@@ -115,7 +128,7 @@ defmodule BeamDeploy.Test.ReleaseRunner do
   defp do_wait_until_dead(runner, deadline) do
     if System.monotonic_time(:millisecond) > deadline do
       # Force kill via pid command
-      bin = Path.join(runner.release_root, "bin/release_app")
+      bin = Path.join(runner.release_root, "bin/#{runner.release_name}")
 
       case System.cmd(bin, ["pid"], env: runner.env, stderr_to_stdout: true) do
         {pid_str, 0} ->
@@ -126,7 +139,7 @@ defmodule BeamDeploy.Test.ReleaseRunner do
           :ok
       end
     else
-      bin = Path.join(runner.release_root, "bin/release_app")
+      bin = Path.join(runner.release_root, "bin/#{runner.release_name}")
 
       case System.cmd(bin, ["pid"], env: runner.env, stderr_to_stdout: true) do
         {_, 0} ->

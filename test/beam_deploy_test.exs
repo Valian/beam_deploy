@@ -31,7 +31,17 @@ defmodule BeamDeployTest do
 
     on_exit(fn ->
       if pid = Process.whereis(BeamDeploy.PeerManager) do
-        capture_log(fn -> GenServer.stop(pid, :normal, 15_000) end)
+        if Process.alive?(pid) do
+          capture_log(fn ->
+            try do
+              GenServer.stop(pid, :normal, 15_000)
+            catch
+              :exit, _ -> :ok
+            end
+          end)
+        end
+      else
+        :ok
       end
 
       :persistent_term.erase({BeamDeploy, :parent_node})

@@ -1,35 +1,39 @@
 defmodule BeamDeploy.Test.ReleaseBuilder do
   @moduledoc false
 
-  @fixture_path Path.expand("../../fixtures/release_app", __DIR__)
   @beam_deploy_root Path.expand("../../..", __DIR__)
 
   @doc """
   Builds a release of the fixture app with the given version strings.
 
-  Returns `{release_root, tarball_path}` on success.
+  Returns `{release_root, tarball_path, work_dir}` on success.
   """
-  def build(app_version, response_version) do
+  def build(app_version, response_version, opts \\ []) do
+    fixture = Keyword.get(opts, :fixture, "release_app")
+    release_name = Keyword.get(opts, :release_name, fixture)
+    fixture_path = Path.expand("../../fixtures/#{fixture}", __DIR__)
+
     work_dir = Path.join(System.tmp_dir!(), "beam_deploy_test_build_#{System.unique_integer([:positive])}")
     File.mkdir_p!(work_dir)
 
-    copy_fixture(work_dir)
+    copy_fixture(fixture_path, work_dir)
     fix_beam_deploy_path(work_dir)
 
-    env = [
-      {"FIXTURE_APP_VERSION", app_version},
-      {"FIXTURE_RESPONSE_VERSION", response_version},
-      {"MIX_ENV", "prod"},
-      {"MIX_BUILD_ROOT", Path.join(work_dir, "_build")},
-      {"MIX_DEPS_PATH", Path.join(work_dir, "deps")}
-    ]
+    env =
+      [
+        {"FIXTURE_APP_VERSION", app_version},
+        {"FIXTURE_RESPONSE_VERSION", response_version},
+        {"MIX_ENV", "prod"},
+        {"MIX_BUILD_ROOT", Path.join(work_dir, "_build")},
+        {"MIX_DEPS_PATH", Path.join(work_dir, "deps")}
+      ] ++ Keyword.get(opts, :env, [])
 
     run_cmd("mix", ["deps.get", "--only", "prod"], work_dir, env)
     run_cmd("mix", ["release", "--overwrite"], work_dir, env)
 
-    release_root = Path.join([work_dir, "_build", "prod", "rel", "release_app"])
+    release_root = Path.join([work_dir, "_build", "prod", "rel", release_name])
 
-    tarball_glob = Path.join([work_dir, "_build", "prod", "release_app-#{app_version}.tar.gz"])
+    tarball_glob = Path.join([work_dir, "_build", "prod", "#{release_name}-#{app_version}.tar.gz"])
 
     tarball_path =
       case Path.wildcard(tarball_glob) do
@@ -38,7 +42,7 @@ defmodule BeamDeploy.Test.ReleaseBuilder do
 
         [] ->
           # Try alternative location
-          alt = Path.join([release_root, "releases", app_version, "release_app.tar.gz"])
+          alt = Path.join([release_root, "releases", app_version, "#{release_name}.tar.gz"])
           if File.regular?(alt), do: alt, else: raise("tarball not found at #{tarball_glob} or #{alt}")
       end
 
@@ -49,8 +53,8 @@ defmodule BeamDeploy.Test.ReleaseBuilder do
     File.rm_rf!(work_dir)
   end
 
-  defp copy_fixture(dest) do
-    File.cp_r!(@fixture_path, dest, on_conflict: fn _source, _dest -> true end)
+  defp copy_fixture(fixture_path, dest) do
+    File.cp_r!(fixture_path, dest, on_conflict: fn _source, _dest -> true end)
   end
 
   defp fix_beam_deploy_path(work_dir) do
