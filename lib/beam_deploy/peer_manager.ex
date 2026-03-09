@@ -6,6 +6,7 @@ defmodule BeamDeploy.PeerManager do
   require Logger
 
   @handoff_table :beam_deploy_handoff
+  @state_table :beam_deploy_state
   @keep_dirs 3
 
   defstruct [
@@ -32,17 +33,35 @@ defmodule BeamDeploy.PeerManager do
   end
 
   def upgrade(tarball_path) when is_binary(tarball_path) do
-    if upgrading?() do
-      {:error, :upgrade_in_progress}
+    if Process.whereis(__MODULE__) == nil do
+      {:error, :not_running}
     else
-      GenServer.call(__MODULE__, {:upgrade, tarball_path}, :infinity)
+      case begin_upgrade() do
+        :ok ->
+          try do
+            GenServer.call(__MODULE__, {:upgrade, tarball_path}, :infinity)
+          catch
+            :exit, _ -> {:error, :not_running}
+          after
+            finish_upgrade()
+          end
+
+        :busy ->
+          {:error, :upgrade_in_progress}
+
+        :not_running ->
+          {:error, :not_running}
+      end
     end
-  catch
-    :exit, _ -> {:error, :not_running}
   end
 
   def upgrading? do
-    :persistent_term.get({__MODULE__, :upgrading}, false)
+    case :ets.lookup(@state_table, :upgrading) do
+      [{:upgrading, true}] -> true
+      _ -> false
+    end
+  catch
+    :error, :badarg -> false
   end
 
   def peer_node do
@@ -85,6 +104,7 @@ defmodule BeamDeploy.PeerManager do
   @impl true
   def init(opts) do
     :ets.new(@handoff_table, [:named_table, :public, :set, write_concurrency: true])
+    :ets.new(@state_table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
 
     state = %__MODULE__{
       otp_app: Keyword.fetch!(opts, :otp_app),
@@ -143,14 +163,8 @@ defmodule BeamDeploy.PeerManager do
 
   defp do_upgrade(tarball_path, state) do
     Logger.info("[BeamDeploy.PeerManager] Starting upgrade from #{tarball_path}")
-    :persistent_term.put({__MODULE__, :upgrading}, true)
     clear_handoff()
-
-    try do
-      do_upgrade_inner(tarball_path, state)
-    after
-      :persistent_term.put({__MODULE__, :upgrading}, false)
-    end
+    do_upgrade_inner(tarball_path, state)
   end
 
   defp do_upgrade_inner(tarball_path, state) do
@@ -184,7 +198,7 @@ defmodule BeamDeploy.PeerManager do
   defp extract_release(tarball_path) do
     if File.regular?(tarball_path) do
       tmp_dir =
-        Path.join(System.tmp_dir!(), "beam_deploy_bg_#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "beam_deploy_bg_#{System.unique_integer([:positive, :monotonic])}")
 
       File.mkdir_p!(tmp_dir)
 
@@ -372,14 +386,51 @@ defmodule BeamDeploy.PeerManager do
     |> Enum.filter(&String.contains?(&1, "/ebin"))
   end
 
+  @doc false
+  def cleanup_extract_dirs(root_dir \\ System.tmp_dir!()) do
+    dirs = extract_dirs_to_cleanup(root_dir)
+    Enum.each(dirs, &File.rm_rf!/1)
+    dirs
+  end
+
   defp cleanup_old_extract_dirs do
-    System.tmp_dir!()
+    cleanup_extract_dirs()
+  end
+
+  @doc false
+  def extract_dirs_to_cleanup(root_dir \\ System.tmp_dir!()) do
+    root_dir
     |> Path.join("beam_deploy_bg_*")
     |> Path.wildcard()
     |> Enum.filter(&File.dir?/1)
-    |> Enum.sort(:desc)
+    |> Enum.sort_by(&extract_dir_sort_key/1, :desc)
     |> Enum.drop(@keep_dirs)
-    |> Enum.each(&File.rm_rf!/1)
+  end
+
+  defp begin_upgrade do
+    if :ets.insert_new(@state_table, {:upgrading, true}) do
+      :ok
+    else
+      :busy
+    end
+  catch
+    :error, :badarg -> :not_running
+  end
+
+  defp finish_upgrade do
+    :ets.delete(@state_table, :upgrading)
+    :ok
+  catch
+    :error, :badarg -> :ok
+  end
+
+  defp extract_dir_sort_key(path) do
+    basename = Path.basename(path)
+
+    case Integer.parse(String.replace_prefix(basename, "beam_deploy_bg_", "")) do
+      {suffix, ""} -> {1, suffix}
+      _ -> {0, path}
+    end
   end
 
   defp ensure_nif_files(release_root) do

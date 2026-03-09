@@ -145,11 +145,69 @@ defmodule BeamDeployTest do
     refute BeamDeploy.upgrading?()
   end
 
+  test "concurrent upgrades reject queued callers while one request is waiting on the manager" do
+    capture_log(fn ->
+      assert {:ok, _pid} =
+               BeamDeploy.PeerManager.start_link(otp_app: :logger, shutdown_timeout: 1_000)
+    end)
+
+    :sys.suspend(BeamDeploy.PeerManager)
+
+    task =
+      Task.async(fn ->
+        BeamDeploy.upgrade("/tmp/does-not-exist.tar.gz")
+      end)
+
+    wait_until(&BeamDeploy.upgrading?/0)
+
+    assert {:error, :upgrade_in_progress} = BeamDeploy.upgrade("/tmp/does-not-exist.tar.gz")
+
+    :sys.resume(BeamDeploy.PeerManager)
+
+    assert {:error, :release_not_found} = Task.await(task)
+    refute BeamDeploy.upgrading?()
+  end
+
+  test "cleanup_extract_dirs keeps the newest numbered release extracts" do
+    root_dir = Path.join(System.tmp_dir!(), "beam_deploy_cleanup_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root_dir)
+
+    on_exit(fn -> File.rm_rf(root_dir) end)
+
+    oldest = Path.join(root_dir, "beam_deploy_bg_9")
+    keep_a = Path.join(root_dir, "beam_deploy_bg_10")
+    keep_b = Path.join(root_dir, "beam_deploy_bg_11")
+    keep_c = Path.join(root_dir, "beam_deploy_bg_12")
+
+    Enum.each([oldest, keep_a, keep_b, keep_c], &File.mkdir_p!/1)
+
+    assert [^oldest] = BeamDeploy.PeerManager.cleanup_extract_dirs(root_dir)
+    refute File.exists?(oldest)
+    assert File.dir?(keep_a)
+    assert File.dir?(keep_b)
+    assert File.dir?(keep_c)
+  end
+
   test "incoming_peer and outgoing_peer expose runtime wiring" do
     Application.put_env(:beam_deploy, :__incoming_peer__, :next@localhost)
     Application.put_env(:beam_deploy, :__outgoing_peer__, :prev@localhost)
 
     assert BeamDeploy.incoming_peer() == :next@localhost
     assert BeamDeploy.outgoing_peer() == :prev@localhost
+  end
+
+  defp wait_until(fun, timeout_ms \\ 1_000)
+
+  defp wait_until(fun, timeout_ms) when timeout_ms <= 0 do
+    assert fun.()
+  end
+
+  defp wait_until(fun, timeout_ms) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until(fun, timeout_ms - 10)
+    end
   end
 end
