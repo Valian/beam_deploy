@@ -7,7 +7,11 @@ defmodule BeamDeploy.MixProject do
       version: "0.1.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      elixirc_paths: elixirc_paths(Mix.env()),
+      deps: deps(),
+      test_ignore_filters: [~r/test\/fixtures/],
+      description: "Blue-green release swaps for a single Elixir node via :peer",
+      package: package()
     ]
   end
 
@@ -18,11 +22,23 @@ defmodule BeamDeploy.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false},
+      {:styler, "~> 1.11", only: [:dev, :test], runtime: false},
+      {:bandit, "~> 1.0", only: :test, runtime: false},
+      {:plug, "~> 1.0", only: :test, runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      files: ~w(lib mix.exs README.md .formatter.exs)
     ]
   end
 end
