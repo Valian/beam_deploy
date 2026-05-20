@@ -22,6 +22,26 @@ There is no storage backend, polling loop, Docker integration, or platform
 coupling in this package. You bring the release and decide when to call the
 upgrade command.
 
+## Example Phoenix App
+
+A self-deploying Phoenix demo lives in [`example/`](example). It is a small
+LiveView app with no database that rebuilds itself with a new compile-time label,
+creates a fresh release tarball, and swaps to it through `BeamDeploy.upgrade/1`.
+
+Run it with:
+
+```bash
+cd example
+./start.sh
+```
+
+Then open <http://localhost:4000> and click one of the release cards. You can
+change the initial label or port with environment variables:
+
+```bash
+PORT=4010 DEMO_BUTTON_LABEL="Ship the green build" ./start.sh
+```
+
 ## Integration
 
 ```elixir

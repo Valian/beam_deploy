@@ -186,7 +186,8 @@ defmodule BeamDeploy.PeerManager do
       graceful_stop_peer(state.active_peer, state.active_node, state.shutdown_timeout)
 
       handoff_state = get_handoff(:__before_cutover_result__)
-      cleanup_old_extract_dirs()
+      release_root = release_dir |> Path.dirname() |> Path.dirname()
+      cleanup_old_extract_dirs([release_root])
       invoke_after_cutover(state.after_cutover, peer_node, handoff_state)
 
       Logger.info("[BeamDeploy.PeerManager] Upgrade complete. Active peer: #{peer_node}")
@@ -387,14 +388,20 @@ defmodule BeamDeploy.PeerManager do
   end
 
   @doc false
-  def cleanup_extract_dirs(root_dir \\ System.tmp_dir!()) do
-    dirs = extract_dirs_to_cleanup(root_dir)
+  def cleanup_extract_dirs(root_dir \\ System.tmp_dir!(), keep_paths \\ []) do
+    keep_paths = Enum.map(keep_paths, &Path.expand/1)
+
+    dirs =
+      root_dir
+      |> extract_dirs_to_cleanup()
+      |> Enum.reject(&(Path.expand(&1) in keep_paths))
+
     Enum.each(dirs, &File.rm_rf!/1)
     dirs
   end
 
-  defp cleanup_old_extract_dirs do
-    cleanup_extract_dirs()
+  defp cleanup_old_extract_dirs(keep_paths \\ []) do
+    cleanup_extract_dirs(System.tmp_dir!(), keep_paths)
   end
 
   @doc false
