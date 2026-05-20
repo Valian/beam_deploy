@@ -3,6 +3,12 @@
 `BeamDeploy` is a small Elixir library for blue-green release swaps and
 in-process hot upgrades on a single host.
 
+## Status
+
+BeamDeploy is experimental. The blue-green path has basic release-level
+integration coverage, and the hot-upgrade path is intended only for compatible
+code-only updates that you have tested against your own release.
+
 For blue-green swaps, it keeps a long-lived parent BEAM process running locally
 and serves your application from a child peer node started with OTP's `:peer`
 module. When you hand it a new `mix release` tarball, it:
