@@ -3,6 +3,10 @@
 `BeamDeploy` is a small Elixir library for blue-green release swaps and
 in-process hot upgrades on a single host.
 
+## Attribution
+
+Most of the implementation is adapted from [`fly_deploy`](https://hex.pm/packages/fly_deploy). BeamDeploy repackages those ideas for a small single-host library and example app.
+
 ## Status
 
 BeamDeploy is experimental. The blue-green path has basic release-level
