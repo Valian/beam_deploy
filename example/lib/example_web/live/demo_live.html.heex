@@ -1,0 +1,106 @@
+<Layouts.flash_group flash={@flash} />
+
+<main class="demo-shell">
+  <div class="demo-backdrop"></div>
+  <div class="demo-top-line"></div>
+
+  <section class="demo-container">
+    <div class="demo-nav">
+      <div class="demo-badge">
+        <span class="demo-badge-dot"></span> BeamDeploy example
+      </div>
+      <div class="demo-chip">Phoenix LiveView · no database · one node</div>
+    </div>
+
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">Blue-green releases</p>
+        <h1 class="hero-title">Swap a running Phoenix release from the page you are viewing.</h1>
+        <p class="hero-copy">
+          Pick a label. The app compiles a production release archive, hands the tarball to BeamDeploy, starts the replacement peer, and cuts traffic over while this LiveView streams progress.
+        </p>
+
+        <div class="steps-grid">
+          <div class="step-card">
+            <strong>1. Build</strong>
+            <p>Compile with a new label baked into the release.</p>
+          </div>
+          <div class="step-card">
+            <strong>2. Boot peer</strong>
+            <p>Start the replacement node with socket reuse.</p>
+          </div>
+          <div class="step-card">
+            <strong>3. Cut over</strong>
+            <p>Stop the old peer after the new release is ready.</p>
+          </div>
+        </div>
+      </div>
+
+      <aside class="current-card">
+        <div class="current-header">
+          <div>
+            <p class="kicker">Current release</p>
+            <p id="current-label" class="current-label">{@current_label}</p>
+          </div>
+          <div class="status-pill">{@status.label}</div>
+        </div>
+
+        <div class="status-box">
+          <div class="status-row">
+            <span class={["status-dot", @status.dot_class, @busy? && "pulse"]}></span>
+            <p id="status-text" class="status-text">{@status.detail}</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="release-grid">
+      <button
+        :for={choice <- @choices}
+        id={choice_id(choice.label)}
+        type="button"
+        phx-click="deploy"
+        phx-value-label={choice.label}
+        class="release-card"
+        disabled={@busy?}
+      >
+        <div class={["release-accent", choice.accent]}></div>
+        <div class="release-card-header">
+          <div>
+            <p class="release-eyebrow">{choice.eyebrow}</p>
+            <p class="release-title">{choice.label}</p>
+            <p class="release-description">{choice.description}</p>
+          </div>
+          <span class="deploy-pill">Deploy</span>
+        </div>
+      </button>
+    </div>
+
+    <section id="deploy-status" class="log-panel">
+      <div class="log-header">
+        <div class="status-row">
+          <div class="window-controls">
+            <span class="control-red"></span>
+            <span class="control-yellow"></span>
+            <span class="control-green"></span>
+          </div>
+          <p class="log-title">release-build.log</p>
+        </div>
+        <div class="status-row">
+          <span :if={@busy?} id="spinner" class="spinner"></span>
+          <p class="log-state">{@status.label}</p>
+        </div>
+      </div>
+
+      <div class="log-body">
+        <div :if={@log_lines == []} class="empty-log">
+          <div>
+            <strong>No build has run yet.</strong>
+            <p>Click a release card above to watch the build output stream here.</p>
+          </div>
+        </div>
+        <pre :if={@log_lines != []} id="deploy-log" class="log-output"><%= Enum.join(@log_lines, "\n") %></pre>
+      </div>
+    </section>
+  </section>
+</main>

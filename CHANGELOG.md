@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- %% CHANGELOG_ENTRIES %% -->
 
+## Unreleased
+
+### Added
+
+- Added a self-deploying Phoenix example app that demonstrates blue-green release swaps with live build logs.
+
+### Fixed
+
+- Preserved the active extracted release directory during cleanup so swapped peers keep serving static assets.
+
 ## 0.1.0 - 2026-05-19
 
 ### Added
